@@ -2,13 +2,9 @@ import cv2
 import numpy as np
 # read the images
 
-import test
 def HarrisCornerDetection(image1): 
      
     gaussian_blur_image = cv2.GaussianBlur(image1,(3,3),2)
-
-    cv2.namedWindow("Blur", cv2.WINDOW_NORMAL)
-    cv2.imshow("Blur",gaussian_blur_image)
     
     #sobel kernal x
     I_x = cv2.Sobel(gaussian_blur_image,cv2.CV_64F,1,0,ksize=3)
@@ -56,11 +52,17 @@ def HarrisCornerDetection(image1):
     for y in range(10,height-9):
         for x in range(10,width-9):
                 maxx = final_image[y,x]               
-                neighbouhood = final_image[y-9:y+8,x-9:x+8]
-                if np.amax(neighbouhood)<=maxx:
-                    corners.append((x,y))
+                neighbouhood = final_image[y-2:y+2,x-2:x+2]
+                if np.amax(neighbouhood)<=maxx and maxx<0.9:
+                    corners.append((y,x))
+                    
+    
+    corners = sorted(corners,key=lambda x: final_image[x[0],x[1]],reverse=True)
+    if len(corners)>500:
+        corners = corners[:500]
 
-    return final_image,corners
+    return final_image,corners 
+    
 
 def findkeyPoints(img_1,img_2,img_3,corner,final_image):
     image_h = img_2.shape[0]
@@ -81,8 +83,8 @@ def findkeyPoints(img_1,img_2,img_3,corner,final_image):
             kernalOf3 = img_3[i-height:i+height+1,j-width:j+width+1]
             max_value = max([np.max(kernalOf1,initial=0),np.max(kernalOf2,initial=0),np.max(kernalOf3,initial=0)])
             min_value = min([np.min(kernalOf1,initial=0),np.min(kernalOf2,initial=0),np.min(kernalOf3,initial=0)])
-            if(main_point>=max_value or main_point<=min_value) and final_image[i,j]>0.14:
-                if(j,i) in corner:
+            if(main_point>=max_value or main_point<=min_value) and final_image[i,j]>0.13:
+                if(i,j) in corner:
                     keypoint.append((j,i))
    
     return keypoint
@@ -103,7 +105,7 @@ def orientation_asssignement(keys,img1,factor):
             row,cols = np.where((ori>=z) & (ori<(z+10)))
             bins.append(np.sum(mag[row,cols]))
         bins = np.argsort(bins)
-        point = cv2.KeyPoint(factor*y,factor*x,1,float(bins[9]*10))
+        point = cv2.KeyPoint(factor*y,factor*x,1,float(bins[35]*10))
         points.append(point)
         magnitude.append(mag)
         orientation.append(ori)
@@ -111,137 +113,172 @@ def orientation_asssignement(keys,img1,factor):
     return points,magnitude,orientation
 
 
-def calculate_descriptor(mags,orie):
+def calculate_descriptor(keys,orie):
     
     des = []
-    for y,x in zip(mags,orie):
+    for y,x in zip(keys,orie):
         bins = []
         for i in range(0,16,4):
             for j in range(0,16,4):
-                small_block_mag = y[i:i+4,j:j+4]
                 small_block_ori = x[i:i+4,j:j+4]
+                small_block_ori = small_block_ori - (360-y.angle)
+                row,cols = np.where(small_block_ori<0)
+                small_block_ori[row,cols] = small_block_ori[row,cols]+360
                 for z in range(0,360,45):
                     row = np.count_nonzero((small_block_ori>=z) & (small_block_ori<(z+45)))
                     row = row/16
                     bins.append(row)
-        des.append(bins)
+        des.append(bins/np.sum(bins))
     return des
     
+def Calculate_DOG_images(img,resize,factor):
+    img1 = cv2.imread(img,cv2.IMREAD_GRAYSCALE)
+    if resize:
+        img1 = cv2.resize(img1,None,fx=factor,fy=factor)
+    image_1_1 = cv2.GaussianBlur(img1,(3,3),1.6)
+    image_1_2 = cv2.GaussianBlur(img1,(3,3),2)
+    image_1_3 = cv2.GaussianBlur(img1,(3,3),2.3)
+    image_1_4 = cv2.GaussianBlur(img1,(3,3),1.5)
+    DOG_1_1 = image_1_2-image_1_1
+    DOG_1_2 = image_1_3 - image_1_2
+    DOG_1_3 = image_1_3 - image_1_4
+    
+    return DOG_1_1,DOG_1_2,DOG_1_3,img1
     
     
 
-img1 = cv2.imread('Yosemite2.jpg') 
+#image 1 Harris corner detecor
+Train_image_name ='contrast1.jpg'
+Query_image_name= 'contrast5.jpg'
+img1 = cv2.imread(Train_image_name) 
+
+
+
+# Calculate DOG using Gaussian blur
+    #image with same size and applied gauusin blur, Calculated DOGs anf finding keypoints and descriptors
+    #Octave 1 with same size of image
 img1_1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
 Harris1,corner = HarrisCornerDetection(img1_1)
 
-img1 = cv2.imread('Yosemite2.jpg',cv2.IMREAD_GRAYSCALE) 
-
-
-image_1_1 = cv2.GaussianBlur(img1,(3,3),1.6)
-image_1_2 = cv2.GaussianBlur(img1,(3,3),2)
-image_1_3 = cv2.GaussianBlur(img1,(3,3),2.3)
-image_1_4 = cv2.GaussianBlur(img1,(3,3),1.5)
-DOG_1_1 = image_1_2-image_1_1
-DOG_1_2 = image_1_3 - image_1_2
-DOG_1_3 = image_1_3 - image_1_4
-
+DOG_1_1, DOG_1_2, DOG_1_3,gray_image = Calculate_DOG_images(Train_image_name,False,0)
 key1 = findkeyPoints(DOG_1_1, DOG_1_2, DOG_1_3, corner,Harris1)
-key1,magnitude,orientation = orientation_asssignement(key1,img1,1)
 
+#calculating keypoint orientation
+key1,magnitude,orientation = orientation_asssignement(key1,gray_image,1)
 
-img1_half = cv2.resize(img1,None,fx=1/2,fy=1/2)
-image_1_1 = cv2.GaussianBlur(img1_half,(3,3),1.6)
-image_1_2 = cv2.GaussianBlur(img1_half,(3,3),2)
-image_1_3 = cv2.GaussianBlur(img1_half,(3,3),2.3)
-image_1_4 = cv2.GaussianBlur(img1_half,(3,3),1.5)
-DOG_1_1 = image_1_2-image_1_1
-DOG_1_2 = image_1_3 - image_1_2
-DOG_1_3 = image_1_3 - image_1_4
+    #Octave 2 with half size of image
+img1_1_half = cv2.resize(img1_1,None,fx=1/2,fy=1/2)
+Harris1,corner = HarrisCornerDetection(img1_1_half)
 
+    #image with half size and applied gauusin blur, Calculated DOGs anf finding keypoints and descriptors
+DOG_1_1, DOG_1_2, DOG_1_3,gray_image = Calculate_DOG_images(Train_image_name,True,1/2)
 key1_half = findkeyPoints(DOG_1_1, DOG_1_2, DOG_1_3, corner,Harris1)
-key1_half,magnitude_half,orientation_half = orientation_asssignement(key1_half,img1_half,2)
 
-key1 = key1 + key1_half
-magnitude = magnitude + magnitude_half
-orientation = orientation + orientation_half
+#calculating keypoint orientation
+key1_half,magnitude_half,orientation_half = orientation_asssignement(key1_half,gray_image,2)
 
+# appending all Octave's keypoins, magnitude and orientation
+
+key1 = key1 + key1_half 
+magnitude = magnitude + magnitude_half 
+orientation = orientation + orientation_half 
+
+#drawing keypoints using DrawKeypoints function of openCV
 kp_img = cv2.drawKeypoints(img1, key1, None, color=(0, 255, 0),flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
-des1 = calculate_descriptor(magnitude,orientation)
-
 cv2.namedWindow("SIFT_1", cv2.WINDOW_NORMAL)
 cv2.imshow("SIFT_1", kp_img)
 
-print("done image 1")
-print(len(key1),len(des1))
+#calculating descriptor for train image
+des1 = calculate_descriptor(key1,orientation)
 
-img2 = cv2.imread('Yosemite1.jpg') 
+
+## Query image 
+img2 = cv2.imread(Query_image_name)
+
+     
+
+#Octave 1 with same size of image
 img1_1 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-Harris1,corner = HarrisCornerDetection(img1_1)
+Harris2,corner = HarrisCornerDetection(img1_1)
 
-img2 = cv2.imread('Yosemite1.jpg',cv2.IMREAD_GRAYSCALE) 
+# Calculate DOG using Gaussian blur
+    #image with same size and applied gauusin blur, Calculated DOGs anf finding keypoints and descriptors
+DOG_1_1, DOG_1_2, DOG_1_3,gray_image = Calculate_DOG_images(Query_image_name,False,0)
+key2 = findkeyPoints(DOG_1_1, DOG_1_2, DOG_1_3, corner,Harris2)
 
+#calculating keypoint orientation
+key2,magnitude,orientation = orientation_asssignement(key2,gray_image,1)
 
-image_1_1 = cv2.GaussianBlur(img2,(3,3),1.6)
-image_1_2 = cv2.GaussianBlur(img2,(3,3),2)
-image_1_3 = cv2.GaussianBlur(img2,(3,3),2.3)
-image_1_4 = cv2.GaussianBlur(img2,(3,3),1.5)
-DOG_1_1 = image_1_2 - image_1_1
-DOG_1_2 = image_1_3 - image_1_2
-DOG_1_3 = image_1_3 - image_1_4
+   #Octave 2 with half size of image
+img1_1_half = cv2.resize(img1_1,None,fx=1/2,fy=1/2)
+Harris2,corner = HarrisCornerDetection(img1_1_half)
 
+ #image with doubled size and applied gauusin blur, Calculated DOGs anf finding keypoints and descriptors
+DOG_1_1, DOG_1_2, DOG_1_3,gray_image = Calculate_DOG_images(Query_image_name,True,1/2)
+key2_half = findkeyPoints(DOG_1_1, DOG_1_2, DOG_1_3, corner,Harris2)
 
-key2 = findkeyPoints(DOG_1_1, DOG_1_2, DOG_1_3, corner,Harris1)
-key2,magnitude,orientation = orientation_asssignement(key2,img2,1)
+#calculating keypoint orientation
+key2_half,magnitude_half,orientation_half = orientation_asssignement(key2_half,gray_image,2)
 
-img2_half = cv2.resize(img2, None,fx=1/2,fy=1/2)
-image_1_1 = cv2.GaussianBlur(img2_half,(3,3),1.6)
-image_1_2 = cv2.GaussianBlur(img2_half,(3,3),2)
-image_1_3 = cv2.GaussianBlur(img2_half,(3,3),2.3)
-image_1_4 = cv2.GaussianBlur(img2_half,(3,3),1.5)
-DOG_1_1 = image_1_2 - image_1_1
-DOG_1_2 = image_1_3 - image_1_2
-DOG_1_3 = image_1_3 - image_1_4
+# appending all Octave's keypoins, magnitude and orientation
+key2 = key2 + key2_half 
+magnitude = magnitude + magnitude_half  
+orientation = orientation + orientation_half 
 
-key2_half = findkeyPoints(DOG_1_1, DOG_1_2, DOG_1_3, corner,Harris1)
-key2_half,magnitude_half,orientation_half = orientation_asssignement(key2_half,img2_half,2)
-
-key2 = key2 + key2_half
-magnitude = magnitude + magnitude_half
-orientation = orientation + orientation_half
-
+#drawing keypoints using DrawKeypoints function of openCV
 kp_img1 = cv2.drawKeypoints(img2, key2, None, color=(0, 255, 0),flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-des2 = calculate_descriptor(magnitude,orientation)
 cv2.namedWindow("SIFT_2", cv2.WINDOW_NORMAL)
 cv2.imshow("SIFT_2", kp_img1)
 
-print("done image 2")
-print(len(key2),len(des2))
+#calculating descriptor for query image
+des2 = calculate_descriptor(key2,orientation)
 
 
-matches =[]
+# feature matching using SSD ratio test
+
+    #Cross check method to improve SSD ratio test
+    #so first we match from des1 to des2
+matches1 =[]
 for z,y in enumerate(des1):
     matchPairs = []
     for x in des2:
         a = np.subtract(x,y)
         a = np.sum(np.square(a))
         matchPairs.append(a)
-    minn = np.argsort(matchPairs) 
-    print("image 1:",key1[z].pt)
-    print("image 2:",key2[minn[0]].pt)
-    print(matchPairs[minn[0]])
-    if (matchPairs[minn[0]]/matchPairs[minn[1]])*1.2<0.8:
-        print(matchPairs[minn[0]]/matchPairs[minn[1]])
-        dmatch = cv2.DMatch(z,minn[0],matchPairs[minn[0]])
-        matches.append(dmatch)
-    if len(matches)==30:
-        break
-print(len(des1),len(des2))
-print(len(matches))
-matched_img = cv2.drawMatches(img1, key1, img2, key2, matches, img1,flags=2)
+    minn = np.argsort(matchPairs)
+    if (matchPairs[minn[0]]/matchPairs[minn[1]])*1.1<0.8 and (matchPairs[minn[0]]/matchPairs[minn[1]])>0:
+        dmatch = (minn[0],z,matchPairs[minn[0]])
+        matches1.append(dmatch)
+
+
+matches2 =[]
+for z,y in enumerate(des2):
+    matchPairs = []
+    for x in des1:
+        a = np.subtract(x,y)
+        a = np.sum(np.square(a))
+        matchPairs.append(a)
+    minn = np.argsort(matchPairs)
+    if (matchPairs[minn[0]]/matchPairs[minn[1]])*1.1<0.8 and (matchPairs[minn[0]]/matchPairs[minn[1]])>0:
+        dmatch = (z,minn[0],matchPairs[minn[0]])
+        matches2.append(dmatch)
+
+
+commonMatches= set(matches1).intersection(set(matches2))
+perfectMatch=[]
+for x,y,z in commonMatches:
+    dmatch = cv2.DMatch(y,x,z)
+    perfectMatch.append(dmatch)
+
+
+
+
+
+#using drawmatches of openCV output of matched keypoints between 2 images
+matched_img = cv2.drawMatches(img1, key1, img2, key2, perfectMatch, img1,flags=2)
 cv2.namedWindow("final_image", cv2.WINDOW_NORMAL)
 cv2.imshow("final_image", matched_img)
-cv2.imwrite("result.jpg", matched_img)
+
 
 
 
